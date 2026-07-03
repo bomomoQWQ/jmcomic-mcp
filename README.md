@@ -26,6 +26,7 @@ uv run jmcomic-mcp --http 8003
 |---|---|---|
 | `search` | 关键词搜索 | `query`, `category`, `time`, `sort`, `page` |
 | `album_detail` | 专辑详情 + 章节列表 | `album_id` |
+| `album_comments` | 查看专辑评论区 | `album_id`, `page` |
 | `ranking` | 周榜/月榜/总榜 | `period` |
 | `browse` | 按分类浏览（无关键词） | `category`, `time`, `sort`, `page` |
 
@@ -94,7 +95,7 @@ jmcomic-mcp/
 ├── pyproject.toml
 └── src/jmcomic_mcp/
     ├── __init__.py
-    └── server.py          # FastMCP + 10 工具，单文件 ~450 行
+    └── server.py          # FastMCP + 11 工具，单文件 ~500 行
 ```
 
 ### 设计特点
@@ -111,7 +112,7 @@ jmcomic-mcp/
 
 - Python ≥ 3.10
 - 能访问 JM CDN 的网络（或配代理）
-- `jmcomic >= 2.7.0`
+- [JMComic-Crawler-Python](https://github.com/hect0x7/JMComic-Crawler-Python)
 - `mcp >= 1.0.0`
 
 ## License
