@@ -7,7 +7,6 @@ requires-python = ">=3.10"
 dependencies = [
     "jmcomic @ git+https://github.com/hect0x7/JMComic-Crawler-Python",
     "mcp>=1.0.0",
-    "img2pdf",
 ]
 
 [project.scripts]

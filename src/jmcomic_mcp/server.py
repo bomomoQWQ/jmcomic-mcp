@@ -387,25 +387,25 @@ async def download(album_id: str) -> str:
                     "downloaded_pages": total_pages,
                 })
 
-                # Convert to PDF
+                # Convert to PDF using PIL (img2pdf can't handle webp)
                 try:
-                    import img2pdf
+                    from PIL import Image
                     base = opt.dir_rule.base_dir or DEFAULT_DOWNLOAD_DIR
-                    dir_path = os.path.join(base, title)
-                    pdf_path = os.path.join(base, f"{title}.pdf")
-                    if os.path.isdir(dir_path) and not os.path.exists(pdf_path):
-                        # Collect all images recursively (handles multi-chapter albums)
-                        images = []
-                        for root, _, files in os.walk(dir_path):
-                            for f in files:
-                                if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp')):
-                                    images.append(os.path.join(root, f))
-                        # Sort by numeric prefix for correct page order
-                        images.sort(key=lambda x: int(''.join(c for c in os.path.splitext(os.path.basename(x))[0] if c.isdigit()) or 0))
-                        if images:
-                            with open(pdf_path, "wb") as pf:
-                                pf.write(img2pdf.convert(images))
-                            _downloads[album_id]["pdf"] = pdf_path
+                    dp = _find_dir()
+                    if dp and os.path.isdir(dp):
+                        pdf_path = os.path.join(base, os.path.basename(dp) + '.pdf')
+                        if not os.path.exists(pdf_path):
+                            images = []
+                            for r, _, fs in os.walk(dp):
+                                for f in fs:
+                                    if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp')):
+                                        images.append(os.path.join(r, f))
+                            images.sort(key=lambda x: int(''.join(c for c in os.path.splitext(os.path.basename(x))[0] if c.isdigit()) or 0))
+                            if images:
+                                imgs = [Image.open(p).convert('RGB') for p in images]
+                                imgs[0].save(pdf_path, save_all=True, append_images=imgs[1:])
+                                for img in imgs: img.close()
+                                _downloads[album_id]["pdf"] = pdf_path
                 except ImportError:
                     pass
                 except Exception as e:
@@ -414,34 +414,23 @@ async def download(album_id: str) -> str:
                 _downloads[album_id]["progress"] = 95
 
                 base = opt.dir_rule.base_dir or DEFAULT_DOWNLOAD_DIR
-                pdf_path = os.path.join(base, f"{title}.pdf")
-                dir_path = os.path.join(base, title)
+                dp = _find_dir()
+                pdf_path = os.path.join(base, os.path.basename(dp) + '.pdf') if dp else ""
 
-                if os.path.exists(pdf_path):
+                if pdf_path and os.path.exists(pdf_path):
                     _downloads[album_id].update({
                         "status": "done", "progress": 100,
                         "path": pdf_path, "size_mb": round(os.path.getsize(pdf_path) / 1048576, 1),
-                        "url": _get_file_url(pdf_path),
                     })
-                elif os.path.exists(dir_path):
-                    file_count = len([f for f in os.listdir(dir_path) if os.path.isfile(os.path.join(dir_path, f))])
+                elif dp and os.path.isdir(dp):
+                    count = sum(1 for r, _, fs in os.walk(dp) for f in fs if os.path.isfile(os.path.join(r, f)))
                     _downloads[album_id].update({
                         "status": "done", "progress": 100,
-                        "path": dir_path, "file_count": file_count,
+                        "path": dp, "file_count": count,
                     })
                 else:
-                    for entry in os.listdir(base):
-                        full = os.path.join(base, entry)
-                        if os.path.isdir(full) and (album_id in entry or title[:10] in entry):
-                            count = len([f for f in os.listdir(full) if os.path.isfile(os.path.join(full, f))])
-                            _downloads[album_id].update({
-                                "status": "done", "progress": 100,
-                                "path": full, "file_count": count,
-                            })
-                            break
-                    else:
-                        _downloads[album_id]["status"] = "done"
-                        _downloads[album_id]["progress"] = 100
+                    _downloads[album_id]["status"] = "done"
+                    _downloads[album_id]["progress"] = 100
 
             except Exception as e:
                 _downloads[album_id].update({"status": "failed", "error": str(e)})
