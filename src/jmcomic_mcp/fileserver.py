@@ -5,10 +5,14 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import unquote
 
 DOWNLOADS = os.path.expanduser("~/downloads")
+import hashlib
+
 PORT = 8889
 
-def safe_name(idx, ext):
-    return f"f_{idx:03d}{ext}"
+def safe_name(fp, ext):
+    """Short name from first 6 chars of MD5 hash."""
+    h = hashlib.md5(os.path.basename(fp).encode()).hexdigest()[:6]
+    return f"{h}{ext}"
 
 def build_index():
     """Map safe names to real files, sorted by mtime (newest first)."""
@@ -28,28 +32,28 @@ class Handler(SimpleHTTPRequestHandler):
         path = unquote(self.path).split('?')[0]
         name = path.lstrip('/')
 
-        # Short name lookup (f_001.pdf)
-        m = re.match(r'^f_(\d{3})(\.\w+)$', name)
+        # Short name lookup (hash-based: a1b2c3.pdf)
+        m = re.match(r'^([a-f0-9]{6})(\.\w+)$', name)
         if m:
-            idx, ext = int(m.group(1)), m.group(2)
-            files = build_index()
-            if 1 <= idx <= len(files):
-                real_path, real_name, _, size = files[idx - 1]
-                self.send_response(200)
-                self.send_header('Content-Type', mimetypes.guess_type(real_name)[0] or 'application/octet-stream')
-                self.send_header('Content-Disposition', f'attachment; filename="{safe_name(idx, ext)}"')
-                self.send_header('Content-Length', str(size))
-                self.end_headers()
-                with open(real_path, 'rb') as f:
-                    self.wfile.write(f.read())
-                return
+            h, ext = m.group(1), m.group(2)
+            for fp, rn, fext, size in build_index():
+                if fext == ext and hashlib.md5(os.path.basename(fp).encode()).hexdigest()[:6] == h:
+                    sn = safe_name(fp, ext)
+                    self.send_response(200)
+                    self.send_header('Content-Type', mimetypes.guess_type(rn)[0] or 'application/octet-stream')
+                    self.send_header('Content-Disposition', f'attachment; filename="{sn}"')
+                    self.send_header('Content-Length', str(size))
+                    self.end_headers()
+                    with open(fp, 'rb') as f:
+                        self.wfile.write(f.read())
+                    return
 
         # Listing page
         if name == '' or name == '/':
             files = build_index()
             body = '<html><body><h2>Downloads</h2><ul>'
-            for i, (_, rn, ext, sz) in enumerate(files, 1):
-                sn = safe_name(i, ext)
+            for fp, rn, ext, sz in files:
+                sn = safe_name(fp, ext)
                 body += f'<li><a href="/{sn}">{sn}</a> — {rn[:60]} ({sz//1048576}MB)</li>'
             body += f'</ul><p>{len(files)} files</p></body></html>'
             self.send_response(200)

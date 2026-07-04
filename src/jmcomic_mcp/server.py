@@ -16,6 +16,7 @@ import json
 import os
 import shutil
 import time
+import hashlib
 from pathlib import Path
 from typing import Optional
 
@@ -520,7 +521,7 @@ async def cleanup(album_id: str, keep_pdf: bool = True) -> str:
 
 @app.tool()
 async def files_list() -> str:
-    """List all downloaded PDFs with short-name download URLs."""
+    """List all downloaded PDFs with hash-based download URLs."""
     base = _option.dir_rule.base_dir if _option else DEFAULT_DOWNLOAD_DIR
     if not os.path.exists(base):
         return _j({"base_dir": base, "files": []})
@@ -531,35 +532,37 @@ async def files_list() -> str:
         [e for e in os.listdir(base) if os.path.isfile(os.path.join(base, e)) and e.lower().endswith(('.pdf','.zip','.cbz'))],
         key=lambda x: os.path.getmtime(os.path.join(base, x)), reverse=True
     )
-    for i, entry in enumerate(entries, 1):
+    for entry in entries:
         full = os.path.join(base, entry)
         ext = os.path.splitext(entry)[1].lower()
+        short = hashlib.md5(entry.encode()).hexdigest()[:6] + ext
         files.append({
             "name": entry,
-            "short": f"f_{i:03d}{ext}",
+            "short": short,
             "size_mb": round(os.path.getsize(full) / 1048576, 1),
-            "url": f"{fs_url.rstrip('/')}/f_{i:03d}{ext}",
+            "url": f"{fs_url.rstrip('/')}/{short}",
         })
     return _j({"base_dir": base, "files": files})
 
 
 @app.tool()
 async def file_url(album_id: str) -> str:
-    """Get the short-name download URL for a completed album by its ID."""
+    """Get the hash-based download URL for a completed album by its ID."""
     fs_url = os.environ.get("FILE_SERVER_URL", "http://192.168.1.10:8889")
     base = _option.dir_rule.base_dir if _option else DEFAULT_DOWNLOAD_DIR
     entries = sorted(
         [e for e in os.listdir(base) if os.path.isfile(os.path.join(base, e)) and e.lower().endswith(('.pdf','.zip','.cbz'))],
         key=lambda x: os.path.getmtime(os.path.join(base, x)), reverse=True
     )
-    for i, entry in enumerate(entries, 1):
+    for entry in entries:
         if album_id in entry or album_id in os.path.splitext(entry)[0]:
             ext = os.path.splitext(entry)[1].lower()
             full = os.path.join(base, entry)
+            short = hashlib.md5(entry.encode()).hexdigest()[:6] + ext
             return _j({
                 "album_id": album_id, "name": entry,
-                "short": f"f_{i:03d}{ext}",
-                "url": f"{fs_url.rstrip('/')}/f_{i:03d}{ext}",
+                "short": short,
+                "url": f"{fs_url.rstrip('/')}/{short}",
                 "size_mb": round(os.path.getsize(full) / 1048576, 1),
             })
     return _j({"error": f"No file found for {album_id}"})
