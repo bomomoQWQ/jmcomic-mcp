@@ -315,14 +315,57 @@ async def download(album_id: str) -> str:
                 c = await _ensure_client()
                 album = await c.get_album_detail(album_id)
                 title = album.title
+                total_pages = getattr(album, 'page_count', 0) or 0
 
-                _downloads[album_id]["progress"] = 30
+                _downloads[album_id].update({
+                    "progress": 15, "title": title,
+                    "total_pages": total_pages, "downloaded_pages": 0,
+                })
+
+                start_time = time.time()
+
+                # Poll file count while download runs
+                base = opt.dir_rule.base_dir or DEFAULT_DOWNLOAD_DIR
+                polling = True
+
+                async def _track():
+                    while polling:
+                        await asyncio.sleep(1)
+                        if not polling:
+                            break
+                        elapsed = time.time() - start_time
+                        count = 0
+                        # Count files in the album directory (matches title or newest dir)
+                        for d in os.listdir(base):
+                            dp = os.path.join(base, d)
+                            if os.path.isdir(dp) and (title in d or d in title):
+                                count = sum(1 for _ in os.listdir(dp) if os.path.isfile(os.path.join(dp, _)))
+                                break
+                        if count > 0 and total_pages > 0:
+                            pct = min(15 + int(75 * count / total_pages), 90)
+                            eta = (elapsed / count * (total_pages - count)) if count > 0 else 0
+                            _downloads[album_id].update({
+                                "progress": pct,
+                                "downloaded_pages": count,
+                                "elapsed_sec": round(elapsed, 1),
+                                "eta_sec": round(eta, 1),
+                            })
+
+                track_task = asyncio.create_task(_track())
 
                 # Download using sync API in thread
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, lambda: jmcomic.download_album(album_id, opt))
 
-                _downloads[album_id]["progress"] = 90
+                polling = False
+                try: await track_task
+                except: pass
+
+                elapsed = time.time() - start_time
+                _downloads[album_id].update({
+                    "progress": 90, "elapsed_sec": round(elapsed, 1),
+                    "downloaded_pages": total_pages,
+                })
 
                 # Convert to PDF
                 try:
