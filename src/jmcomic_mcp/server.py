@@ -425,10 +425,14 @@ async def cleanup(album_id: str, keep_pdf: bool = True) -> str:
 
     if not path:
         base = _option.dir_rule.base_dir if _option else DEFAULT_DOWNLOAD_DIR
+        # Search by album_id, then by filename substring
         for entry in os.listdir(base):
-            if album_id in entry:
+            if album_id in entry or album_id in os.path.splitext(entry)[0]:
                 path = os.path.join(base, entry)
                 break
+        # If still not found, try searching by filename from files_list
+        if not os.path.exists(path) if path else True:
+            path = ""
 
     if not path or not os.path.exists(path):
         return _j({"error": f"No files found for {album_id}", "searched": str(base) if path else "?"})
