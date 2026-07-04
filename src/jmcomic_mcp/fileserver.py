@@ -5,7 +5,7 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import unquote
 
 DOWNLOADS = os.path.expanduser("~/downloads")
-PORT = 8888
+PORT = 8889
 
 def safe_name(idx, ext):
     return f"f_{idx:03d}{ext}"
