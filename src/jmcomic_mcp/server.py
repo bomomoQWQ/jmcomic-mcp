@@ -525,7 +525,7 @@ async def files_list() -> str:
     if not os.path.exists(base):
         return _j({"base_dir": base, "files": []})
 
-    fs_url = os.environ.get("FILE_SERVER_URL", "http://192.168.1.10:8888")
+    fs_url = os.environ.get("FILE_SERVER_URL", "http://192.168.1.10:8889")
     files = []
     entries = sorted(
         [e for e in os.listdir(base) if os.path.isfile(os.path.join(base, e)) and e.lower().endswith(('.pdf','.zip','.cbz'))],
@@ -546,7 +546,7 @@ async def files_list() -> str:
 @app.tool()
 async def file_url(album_id: str) -> str:
     """Get the short-name download URL for a completed album by its ID."""
-    fs_url = os.environ.get("FILE_SERVER_URL", "http://192.168.1.10:8888")
+    fs_url = os.environ.get("FILE_SERVER_URL", "http://192.168.1.10:8889")
     base = _option.dir_rule.base_dir if _option else DEFAULT_DOWNLOAD_DIR
     entries = sorted(
         [e for e in os.listdir(base) if os.path.isfile(os.path.join(base, e)) and e.lower().endswith(('.pdf','.zip','.cbz'))],
