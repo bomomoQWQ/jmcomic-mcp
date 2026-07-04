@@ -331,10 +331,14 @@ async def download(album_id: str) -> str:
                     dir_path = os.path.join(base, title)
                     pdf_path = os.path.join(base, f"{title}.pdf")
                     if os.path.isdir(dir_path) and not os.path.exists(pdf_path):
-                        images = sorted([
-                            os.path.join(dir_path, f) for f in os.listdir(dir_path)
-                            if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp'))
-                        ])
+                        # Collect all images recursively (handles multi-chapter albums)
+                        images = []
+                        for root, _, files in os.walk(dir_path):
+                            for f in files:
+                                if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp')):
+                                    images.append(os.path.join(root, f))
+                        # Sort by numeric prefix for correct page order
+                        images.sort(key=lambda x: int(''.join(c for c in os.path.splitext(os.path.basename(x))[0] if c.isdigit()) or 0))
                         if images:
                             with open(pdf_path, "wb") as pf:
                                 pf.write(img2pdf.convert(images))
