@@ -335,18 +335,10 @@ async def download(album_id: str) -> str:
                 c = await _ensure_client()
                 album = await c.get_album_detail(album_id)
                 title = album.title
-                total_pages = getattr(album, 'page_count', 0) or 0
-                if total_pages <= 0:
-                    # Fallback: count chapters * estimate 20 pages each
-                    try:
-                        ch_count = sum(1 for _ in album)
-                        total_pages = ch_count * 20
-                    except Exception:
-                        pass
 
                 _downloads[album_id].update({
                     "progress": 15, "title": title,
-                    "total_pages": total_pages, "downloaded_pages": 0,
+                    "downloaded_pages": 0,
                 })
 
                 start_time = time.time()
@@ -388,13 +380,12 @@ async def download(album_id: str) -> str:
                         if dp:
                             count = sum(1 for r, _, fs in os.walk(dp) for f in fs if os.path.isfile(os.path.join(r, f)))
                         if count > 0:
-                            pct = 15 + int(70 * count / total_pages) if total_pages > 0 else 15 + min(count, 50)
-                            eta = (elapsed / count * (total_pages - count)) if total_pages > 0 and count > 0 else 0
+                            pct = min(15 + count, 85)
                             _downloads[album_id].update({
                                 "progress": min(pct, 90),
                                 "downloaded_pages": count,
                                 "elapsed_sec": round(elapsed, 1),
-                                "eta_sec": round(eta, 1),
+                                "eta_sec": round(elapsed / count * 0, 1) if count == 0 else 0,
                             })
 
                 track_task = asyncio.create_task(_track())
@@ -408,10 +399,8 @@ async def download(album_id: str) -> str:
                 except: pass
 
                 elapsed = time.time() - start_time
-                _downloads[album_id].update({
-                    "progress": 90, "elapsed_sec": round(elapsed, 1),
-                    "downloaded_pages": total_pages,
-                })
+                _downloads[album_id]["progress"] = 90
+                _downloads[album_id]["elapsed_sec"] = round(elapsed, 1)
 
                 # Convert to PDF using PIL (img2pdf can't handle webp)
                 try:
