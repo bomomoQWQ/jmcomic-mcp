@@ -394,7 +394,8 @@ async def download(album_id: str) -> str:
                     dp = _find_dir()
                     if dp and os.path.isdir(dp):
                         pdf_path = os.path.join(base, os.path.basename(dp) + '.pdf')
-                        if not os.path.exists(pdf_path):
+                        pdf_ok = os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0
+                        if not pdf_ok:
                             images = []
                             for r, _, fs in os.walk(dp):
                                 for f in fs:
