@@ -7,7 +7,7 @@
 ## 快速开始
 
 ```bash
-git clone <repo-url> jmcomic-mcp
+git clone https://github.com/bomomoQWQ/jmcomic-mcp.git
 cd jmcomic-mcp
 uv sync
 
@@ -18,7 +18,7 @@ uv run jmcomic-mcp
 uv run jmcomic-mcp --http 8003
 ```
 
-## 工具列表
+## 工具列表（10 个）
 
 ### 浏览发现（4 个）
 
@@ -26,7 +26,6 @@ uv run jmcomic-mcp --http 8003
 |---|---|---|
 | `search` | 关键词搜索 | `query`, `category`, `time`, `sort`, `page` |
 | `album_detail` | 专辑详情 + 章节列表 | `album_id` |
-| `album_comments` | 查看专辑评论区 | `album_id`, `page` |
 | `ranking` | 周榜/月榜/总榜 | `period` |
 | `browse` | 按分类浏览（无关键词） | `category`, `time`, `sort`, `page` |
 
@@ -34,23 +33,27 @@ uv run jmcomic-mcp --http 8003
 
 | 工具 | 功能 | 参数 |
 |---|---|---|
-| `download` | 下载专辑，后台异步执行 | `album_id` |
-| `download_status` | 查看下载进度和状态 | `album_id` |
+| `download` | 下载 + 自动转 PDF，后台异步，一次只跑一个 | `album_id` |
+| `download_status` | 查看进度、已下载页数、耗时 | `album_id` |
 | `download_list` | 列出全部下载记录 | — |
-| `cleanup` | 清理下载文件，删原图留 PDF 或全清 | `album_id`, `keep_pdf` |
+| `cleanup` | 清理文件，删原图留 PDF 或全清 | `album_id`, `keep_pdf` |
 
 ### 文件交付（2 个）
 
 | 工具 | 功能 | 参数 |
 |---|---|---|
-| `files_list` | 列出所有已下载 PDF + 下载链接 | — |
-| `file_url` | 按专辑 ID 查 PDF 下载链接 | `album_id` |
+| `files_list` | 列出所有 PDF + MD5 短名链接 | — |
+| `file_url` | 按专辑 ID 查下载链接 | `album_id` |
+
+### 分类 / 排序 / 时间
+
+| 分类 | 排序 | 时间 |
+|---|---|---|
+| `all` `doujin` `single` `short` `another` `hanman` `meiman` `doujin_cosplay` `3d` `english_site` | `latest` `view` `picture` `like` | `all` `today` `week` `month` |
 
 ## 配置
 
 ### op.yml（可选）
-
-工作目录下放 `op.yml`，不写就用默认值：
 
 ```yaml
 client:
@@ -71,7 +74,7 @@ dir_rule:
 | `HTTP_PROXY` | JM API 请求代理 | — |
 | `HTTPS_PROXY` | 同上 | — |
 | `JM_OPTION_PATH` | op.yml 路径 | `./op.yml` |
-| `FILE_SERVER_URL` | 文件下载链接的基础 URL | — |
+| `FILE_SERVER_URL` | 文件下载链接的基础 URL | `http://192.168.1.10:8889` |
 
 ### MCP 客户端配置
 
@@ -80,13 +83,22 @@ dir_rule:
   "mcpServers": {
     "jmcomic": {
       "transport": "streamable_http",
-      "url": "http://<服务器IP>:8003/mcp",
+      "url": "http://192.168.1.10:8003/mcp",
       "timeout": 30,
       "sse_read_timeout": 300
     }
   }
 }
 ```
+
+## 文件服务器
+
+下载的 PDF 通过独立文件服务器对外提供，运行在 `:8889`：
+
+- 短名基于文件名 MD5 前 6 位（如 `bf258b.pdf`），每次下载不同名，无冲突
+- 动态列表页 `http://192.168.1.10:8889/` 显示所有可下载文件
+- 正确设置 `Content-Disposition` 头，兼容 LANraragi `download_url`
+- systemd 服务：`fileserver.service`
 
 ## 架构
 
@@ -95,18 +107,20 @@ jmcomic-mcp/
 ├── pyproject.toml
 └── src/jmcomic_mcp/
     ├── __init__.py
-    └── server.py          # FastMCP + 11 工具，单文件 ~500 行
+    ├── server.py          # FastMCP + 10 工具
+    └── fileserver.py      # HTTP 文件服务器（独立进程）
 ```
 
-### 设计特点
+## 设计特点
 
-- **原生异步**：浏览和查询操作直调 `jmcomic.AsyncJmApiClient`，充分利用 Python asyncio，不阻塞事件循环
-- **懒加载初始化**：JM 客户端在首次工具调用时才创建，避免启动时网络不通导致整个进程崩溃
-- **域名自动更新**：启动时自动从 bytepluses CDN 拉取最新 API 域名列表，无需手动维护
-- **下载状态追踪**：每个下载任务有完整的生命周期——queued → downloading → done / failed，随时可查进度
-- **代理支持**：通过 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量透传，无需改代码
-- **空间管理**：`cleanup` 一键删除下载留下的原始图片，只保留 PDF，节省磁盘空间
-- **文件交付**：`files_list` + `file_url` 直接给出可访问的下载链接，对接 HTTP 文件服务器
+- **原生异步**：浏览和查询直调 `jmcomic.AsyncJmApiClient`，不阻塞事件循环
+- **懒加载初始化**：JM 客户端首次调用时才创建，避免启动时崩溃
+- **域名自动更新**：bytepluses CDN 拉取最新 API 域名
+- **代理支持**：`HTTP_PROXY` / `HTTPS_PROXY` 环境变量透传
+- **并发控制**：Semaphore(1) 一次只跑一个下载，限 2 图片线程，弱 CPU 不卡死
+- **PIL PDF 转换**：递归合并子目录处理多章节本子，兼容 webp
+- **MD5 短名**：文件名哈希前 6 位，不上传不重复
+- **下载进度追踪**：实时轮询文件数，含已用时和已下载页数
 
 ## 运行环境
 
