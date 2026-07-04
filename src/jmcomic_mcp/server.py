@@ -463,42 +463,49 @@ async def cleanup(album_id: str, keep_pdf: bool = True) -> str:
 
 @app.tool()
 async def files_list() -> str:
-    """List all downloaded files in the download directory with URLs."""
+    """List all downloaded PDFs with short-name download URLs."""
     base = _option.dir_rule.base_dir if _option else DEFAULT_DOWNLOAD_DIR
     if not os.path.exists(base):
         return _j({"base_dir": base, "files": []})
 
+    fs_url = os.environ.get("FILE_SERVER_URL", "http://192.168.1.10:8888")
     files = []
-    for entry in sorted(os.listdir(base)):
+    entries = sorted(
+        [e for e in os.listdir(base) if os.path.isfile(os.path.join(base, e)) and e.lower().endswith(('.pdf','.zip','.cbz'))],
+        key=lambda x: os.path.getmtime(os.path.join(base, x)), reverse=True
+    )
+    for i, entry in enumerate(entries, 1):
         full = os.path.join(base, entry)
-        if os.path.isfile(full) and entry.endswith(".pdf"):
-            files.append({
-                "name": entry,
-                "size_mb": round(os.path.getsize(full) / 1048576, 1),
-                "url": _get_file_url(full),
-            })
+        ext = os.path.splitext(entry)[1].lower()
+        files.append({
+            "name": entry,
+            "short": f"f_{i:03d}{ext}",
+            "size_mb": round(os.path.getsize(full) / 1048576, 1),
+            "url": f"{fs_url.rstrip('/')}/f_{i:03d}{ext}",
+        })
     return _j({"base_dir": base, "files": files})
 
 
 @app.tool()
 async def file_url(album_id: str) -> str:
-    """Get the download URL for a completed album by its ID."""
-    info = _downloads.get(album_id)
-    if info and info.get("url"):
-        return _j({"album_id": album_id, "url": info["url"], "size_mb": info.get("size_mb")})
-
-    # Fallback: search the download directory
+    """Get the short-name download URL for a completed album by its ID."""
+    fs_url = os.environ.get("FILE_SERVER_URL", "http://192.168.1.10:8888")
     base = _option.dir_rule.base_dir if _option else DEFAULT_DOWNLOAD_DIR
-    for entry in os.listdir(base):
-        if album_id in entry and entry.endswith(".pdf"):
+    entries = sorted(
+        [e for e in os.listdir(base) if os.path.isfile(os.path.join(base, e)) and e.lower().endswith(('.pdf','.zip','.cbz'))],
+        key=lambda x: os.path.getmtime(os.path.join(base, x)), reverse=True
+    )
+    for i, entry in enumerate(entries, 1):
+        if album_id in entry or album_id in os.path.splitext(entry)[0]:
+            ext = os.path.splitext(entry)[1].lower()
             full = os.path.join(base, entry)
             return _j({
-                "album_id": album_id,
-                "name": entry,
-                "url": _get_file_url(full),
+                "album_id": album_id, "name": entry,
+                "short": f"f_{i:03d}{ext}",
+                "url": f"{fs_url.rstrip('/')}/f_{i:03d}{ext}",
                 "size_mb": round(os.path.getsize(full) / 1048576, 1),
             })
-    return _j({"error": f"No PDF found for {album_id}"})
+    return _j({"error": f"No file found for {album_id}"})
 
 
 # ═══════════════════════════════════════════════════════════════════════════
