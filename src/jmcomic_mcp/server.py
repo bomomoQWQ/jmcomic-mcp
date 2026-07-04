@@ -175,7 +175,13 @@ async def search(
             category=cat_map.get(category, JmMagicConstants.CATEGORY_ALL),
             sub_category=None,
         )
-        items = [{"id": aid, "title": _title_of(title)} for aid, title in page_data[:20]]
+        items = []
+        for row in page_data[:20]:
+            try:
+                aid, title = row[0], row[1]
+                items.append({"id": aid, "title": _title_of(title)})
+            except (IndexError, TypeError):
+                pass
         return _j({"query": query, "page": page, "total": len(items), "results": items})
     except Exception as e:
         return _j({"error": str(e)})
@@ -233,7 +239,13 @@ async def ranking(period: str = "week") -> str:
                 category=JmMagicConstants.CATEGORY_ALL,
                 order_by=JmMagicConstants.ORDER_BY_VIEW,
             )
-        items = [{"id": aid, "title": _title_of(title)} for aid, title in page[:20]]
+        items = []
+        for row in page[:20]:
+            try:
+                aid, title = row[0], row[1]
+                items.append({"id": aid, "title": _title_of(title)})
+            except (IndexError, TypeError):
+                pass
         return _j({"period": period, "results": items})
     except Exception as e:
         return _j({"error": str(e)})
@@ -273,7 +285,13 @@ async def browse(
             category=cat_map.get(category, JmMagicConstants.CATEGORY_ALL),
             order_by=sort_map.get(sort, JmMagicConstants.ORDER_BY_VIEW),
         )
-        items = [{"id": aid, "title": _title_of(title)} for aid, title in page_data[:20]]
+        items = []
+        for row in page_data[:20]:
+            try:
+                aid, title = row[0], row[1]
+                items.append({"id": aid, "title": _title_of(title)})
+            except (IndexError, TypeError):
+                pass
         return _j({"category": category, "time": time, "sort": sort, "results": items})
     except Exception as e:
         return _j({"error": str(e)})
@@ -318,6 +336,13 @@ async def download(album_id: str) -> str:
                 album = await c.get_album_detail(album_id)
                 title = album.title
                 total_pages = getattr(album, 'page_count', 0) or 0
+                if total_pages <= 0:
+                    # Fallback: count chapters * estimate 20 pages each
+                    try:
+                        ch_count = sum(1 for _ in album)
+                        total_pages = ch_count * 20
+                    except Exception:
+                        pass
 
                 _downloads[album_id].update({
                     "progress": 15, "title": title,
@@ -333,13 +358,13 @@ async def download(album_id: str) -> str:
                     for d in os.listdir(base):
                         dp = os.path.join(base, d)
                         if os.path.isdir(dp):
-                            # Match by album_id first, then by title substring
-                            if album_id in d or (title and any(t in d for t in title[:20].split(' '))):
+                            # Match by album_id first, or any 10-char chunk of title
+                            title_chunks = [title[i:i+10] for i in range(0, min(len(title), 40), 10)]
+                            if album_id in d or any(tc and tc in d for tc in title_chunks):
                                 mt = os.path.getmtime(dp)
                                 if mt > best_time:
                                     best = dp
                                     best_time = mt
-                    # Fallback: just the newest directory
                     if not best:
                         for d in os.listdir(base):
                             dp = os.path.join(base, d)
