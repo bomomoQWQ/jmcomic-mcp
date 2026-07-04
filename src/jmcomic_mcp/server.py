@@ -281,11 +281,13 @@ async def browse(
 #  TOOLS — Download & Manage
 # ═══════════════════════════════════════════════════════════════════════════
 
+_download_sem = asyncio.Semaphore(1)
+
 @app.tool()
 async def download(album_id: str) -> str:
     """
     Download an entire album. Runs in background, returns immediately.
-    Use download_status() to check progress.
+    Only 1 download at a time (others queue). Use download_status() to check progress.
     """
     if album_id in _downloads and _downloads[album_id].get("status") in ("downloading", "queued"):
         return _j({"status": "already_queued", "album_id": album_id})
@@ -293,87 +295,89 @@ async def download(album_id: str) -> str:
     _downloads[album_id] = {"status": "queued", "progress": 0, "path": "", "error": ""}
 
     async def _do():
-        try:
-            _downloads[album_id]["status"] = "downloading"
-            import jmcomic
-            opt = _option
-            if opt is None:
-                from jmcomic import JmOption
-                opt = JmOption.default()
-                opt.dir_rule.base_dir = DEFAULT_DOWNLOAD_DIR
-
-            _downloads[album_id]["progress"] = 10
-
-            # Get album info
-            c = await _ensure_client()
-            album = await c.get_album_detail(album_id)
-            title = album.title
-
-            _downloads[album_id]["progress"] = 30
-
-            # Download using sync API in thread (async downloader needs setup)
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, lambda: jmcomic.download_album(album_id, opt))
-
-            _downloads[album_id]["progress"] = 90
-
-            # Convert to PDF
+        async with _download_sem:
             try:
-                import img2pdf
+                _downloads[album_id]["status"] = "downloading"
+                import jmcomic
+                opt = _option
+                if opt is None:
+                    from jmcomic import JmOption
+                    opt = JmOption.default()
+                    opt.dir_rule.base_dir = DEFAULT_DOWNLOAD_DIR
+
+                # Limit download threads for weak CPU
+                opt.download.threading.image = 2
+                opt.download.threading.photo = 1
+
+                _downloads[album_id]["progress"] = 10
+
+                # Get album info
+                c = await _ensure_client()
+                album = await c.get_album_detail(album_id)
+                title = album.title
+
+                _downloads[album_id]["progress"] = 30
+
+                # Download using sync API in thread
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, lambda: jmcomic.download_album(album_id, opt))
+
+                _downloads[album_id]["progress"] = 90
+
+                # Convert to PDF
+                try:
+                    import img2pdf
+                    base = opt.dir_rule.base_dir or DEFAULT_DOWNLOAD_DIR
+                    dir_path = os.path.join(base, title)
+                    pdf_path = os.path.join(base, f"{title}.pdf")
+                    if os.path.isdir(dir_path) and not os.path.exists(pdf_path):
+                        images = sorted([
+                            os.path.join(dir_path, f) for f in os.listdir(dir_path)
+                            if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp'))
+                        ])
+                        if images:
+                            with open(pdf_path, "wb") as pf:
+                                pf.write(img2pdf.convert(images))
+                            _downloads[album_id]["pdf"] = pdf_path
+                except ImportError:
+                    pass
+                except Exception as e:
+                    _downloads[album_id]["pdf_error"] = str(e)
+
+                _downloads[album_id]["progress"] = 95
+
                 base = opt.dir_rule.base_dir or DEFAULT_DOWNLOAD_DIR
-                dir_path = os.path.join(base, title)
                 pdf_path = os.path.join(base, f"{title}.pdf")
-                
-                if os.path.isdir(dir_path) and not os.path.exists(pdf_path):
-                    images = sorted([
-                        os.path.join(dir_path, f) for f in os.listdir(dir_path)
-                        if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp'))
-                    ])
-                    if images:
-                        with open(pdf_path, "wb") as pf:
-                            pf.write(img2pdf.convert(images))
-                        _downloads[album_id]["pdf"] = pdf_path
-            except ImportError:
-                pass  # img2pdf not available
-            except Exception as e:
-                _downloads[album_id]["pdf_error"] = str(e)
+                dir_path = os.path.join(base, title)
 
-            _downloads[album_id]["progress"] = 95
-
-            # Find the downloaded dir
-            base = opt.dir_rule.base_dir or DEFAULT_DOWNLOAD_DIR
-            pdf_path = os.path.join(base, f"{title}.pdf")
-            dir_path = os.path.join(base, title)
-
-            if os.path.exists(pdf_path):
-                _downloads[album_id].update({
-                    "status": "done", "progress": 100,
-                    "path": pdf_path, "size_mb": round(os.path.getsize(pdf_path) / 1048576, 1),
-                    "url": _get_file_url(pdf_path),
-                })
-            elif os.path.exists(dir_path):
-                file_count = len([f for f in os.listdir(dir_path) if os.path.isfile(os.path.join(dir_path, f))])
-                _downloads[album_id].update({
-                    "status": "done", "progress": 100,
-                    "path": dir_path, "file_count": file_count,
-                })
-            else:
-                # Search for matching dir
-                for entry in os.listdir(base):
-                    full = os.path.join(base, entry)
-                    if os.path.isdir(full) and (album_id in entry or title[:10] in entry):
-                        count = len([f for f in os.listdir(full) if os.path.isfile(os.path.join(full, f))])
-                        _downloads[album_id].update({
-                            "status": "done", "progress": 100,
-                            "path": full, "file_count": count,
-                        })
-                        break
+                if os.path.exists(pdf_path):
+                    _downloads[album_id].update({
+                        "status": "done", "progress": 100,
+                        "path": pdf_path, "size_mb": round(os.path.getsize(pdf_path) / 1048576, 1),
+                        "url": _get_file_url(pdf_path),
+                    })
+                elif os.path.exists(dir_path):
+                    file_count = len([f for f in os.listdir(dir_path) if os.path.isfile(os.path.join(dir_path, f))])
+                    _downloads[album_id].update({
+                        "status": "done", "progress": 100,
+                        "path": dir_path, "file_count": file_count,
+                    })
                 else:
-                    _downloads[album_id]["status"] = "done"
-                    _downloads[album_id]["progress"] = 100
+                    for entry in os.listdir(base):
+                        full = os.path.join(base, entry)
+                        if os.path.isdir(full) and (album_id in entry or title[:10] in entry):
+                            count = len([f for f in os.listdir(full) if os.path.isfile(os.path.join(full, f))])
+                            _downloads[album_id].update({
+                                "status": "done", "progress": 100,
+                                "path": full, "file_count": count,
+                            })
+                            break
+                    else:
+                        _downloads[album_id]["status"] = "done"
+                        _downloads[album_id]["progress"] = 100
 
-        except Exception as e:
-            _downloads[album_id].update({"status": "failed", "error": str(e)})
+            except Exception as e:
+                _downloads[album_id].update({"status": "failed", "error": str(e)})
 
     asyncio.create_task(_do())
     return _j({"status": "queued", "album_id": album_id, "message": "Download started in background"})
