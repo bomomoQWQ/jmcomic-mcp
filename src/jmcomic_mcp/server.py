@@ -324,9 +324,31 @@ async def download(album_id: str) -> str:
                 })
 
                 start_time = time.time()
-
-                # Poll file count while download runs
                 base = opt.dir_rule.base_dir or DEFAULT_DOWNLOAD_DIR
+                # Find the download directory — use the newest one matching any part of the title or album_id
+                def _find_dir():
+                    best = None
+                    best_time = 0
+                    for d in os.listdir(base):
+                        dp = os.path.join(base, d)
+                        if os.path.isdir(dp):
+                            # Match by album_id first, then by title substring
+                            if album_id in d or (title and any(t in d for t in title[:20].split(' '))):
+                                mt = os.path.getmtime(dp)
+                                if mt > best_time:
+                                    best = dp
+                                    best_time = mt
+                    # Fallback: just the newest directory
+                    if not best:
+                        for d in os.listdir(base):
+                            dp = os.path.join(base, d)
+                            if os.path.isdir(dp):
+                                mt = os.path.getmtime(dp)
+                                if mt > best_time:
+                                    best = dp
+                                    best_time = mt
+                    return best
+
                 polling = True
 
                 async def _track():
@@ -335,18 +357,15 @@ async def download(album_id: str) -> str:
                         if not polling:
                             break
                         elapsed = time.time() - start_time
+                        dp = _find_dir()
                         count = 0
-                        # Count files in the album directory (matches title or newest dir)
-                        for d in os.listdir(base):
-                            dp = os.path.join(base, d)
-                            if os.path.isdir(dp) and (title in d or d in title):
-                                count = sum(1 for _ in os.listdir(dp) if os.path.isfile(os.path.join(dp, _)))
-                                break
-                        if count > 0 and total_pages > 0:
-                            pct = min(15 + int(75 * count / total_pages), 90)
-                            eta = (elapsed / count * (total_pages - count)) if count > 0 else 0
+                        if dp:
+                            count = sum(1 for r, _, fs in os.walk(dp) for f in fs if os.path.isfile(os.path.join(r, f)))
+                        if count > 0:
+                            pct = 15 + int(70 * count / total_pages) if total_pages > 0 else 15 + min(count, 50)
+                            eta = (elapsed / count * (total_pages - count)) if total_pages > 0 and count > 0 else 0
                             _downloads[album_id].update({
-                                "progress": pct,
+                                "progress": min(pct, 90),
                                 "downloaded_pages": count,
                                 "elapsed_sec": round(elapsed, 1),
                                 "eta_sec": round(eta, 1),
