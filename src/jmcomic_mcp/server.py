@@ -205,6 +205,7 @@ async def album_detail(album_id: str) -> str:
         return _j({"error": str(e)})
 
 
+
 @app.tool()
 async def ranking(period: str = "week") -> str:
     """Get comic ranking. period: week, month, or total."""
