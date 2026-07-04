@@ -206,25 +206,6 @@ async def album_detail(album_id: str) -> str:
 
 
 @app.tool()
-async def album_comments(album_id: str, page: int = 1) -> str:
-    """Get user comments for an album. page: 1-based page number."""
-    try:
-        c = await _ensure_client()
-        comments = await c.album_comment(album_id, page=page)
-        items = []
-        for cmt in getattr(comments, 'comment_list', []) or []:
-            items.append({
-                "user": getattr(cmt, 'username', ''),
-                "content": getattr(cmt, 'content', ''),
-                "date": getattr(cmt, 'date', ''),
-                "likes": getattr(cmt, 'like_count', 0),
-            })
-        return _j({"album_id": album_id, "page": page, "total": len(items), "comments": items})
-    except Exception as e:
-        return _j({"error": str(e)})
-
-
-@app.tool()
 async def ranking(period: str = "week") -> str:
     """Get comic ranking. period: week, month, or total."""
     from jmcomic import JmMagicConstants
